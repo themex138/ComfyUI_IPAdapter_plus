@@ -221,9 +221,15 @@ def set_model_patch_replace(model, patch_kwargs, key):
 
     if key not in to["patches_replace"]["attn2"]:
         to["patches_replace"]["attn2"][key] = Attn2Replace(ipadapter_attention, **patch_kwargs)
-        model.model_options["transformer_options"] = to
     else:
-        to["patches_replace"]["attn2"][key].add(ipadapter_attention, **patch_kwargs)
+        # Model clones share hook objects with cached upstream models.
+        patch = copy.copy(to["patches_replace"]["attn2"][key])
+        patch.callback = patch.callback.copy()
+        patch.kwargs = patch.kwargs.copy()
+        patch.multigpu_kwargs = {}
+        patch.add(ipadapter_attention, **patch_kwargs)
+        to["patches_replace"]["attn2"][key] = patch
+    model.model_options["transformer_options"] = to
 
 def ipadapter_execute(model,
                       ipadapter,
