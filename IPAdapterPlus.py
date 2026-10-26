@@ -18,7 +18,7 @@ except ImportError:
     import torchvision.transforms as T
 
 from .image_proj_models import MLPProjModel, MLPProjModelFaceId, ProjModelFaceIdPlus, Resampler, ImageProjModel
-from .CrossAttentionPatch import Attn2Replace, ipadapter_attention
+from .CrossAttentionPatch import Attn2Replace, ipadapter_attention, ipadapter_sigma_wrapper
 from .utils import (
     encode_image_masked,
     tensor_to_size,
@@ -207,6 +207,17 @@ class To_KV(nn.Module):
                 self.to_kvs[key.replace(".weight", "").replace(".", "_")] = nn.Linear(value.shape[1], value.shape[0], bias=False)
                 self.to_kvs[key.replace(".weight", "").replace(".", "_")].weight.data = value
 
+def set_model_sigma_wrapper(model):
+    if not hasattr(model, "add_wrapper_with_key") or not hasattr(model, "get_wrappers"):
+        return
+    try:
+        from comfy.patcher_extension import WrappersMP
+    except ImportError:
+        return
+    wrapper_type = getattr(WrappersMP, "APPLY_MODEL", None)
+    if wrapper_type is not None and not model.get_wrappers(wrapper_type, "ipadapter_sigma"):
+        model.add_wrapper_with_key(wrapper_type, "ipadapter_sigma", ipadapter_sigma_wrapper)
+
 def set_model_patch_replace(model, patch_kwargs, key):
     to = model.model_options["transformer_options"].copy()
     if "patches_replace" not in to:
@@ -379,7 +390,10 @@ def ipadapter_execute(model,
         del image_iface, face
 
     if image is not None:
-        img_cond_embeds = encode_image_masked(clipvision, image, batch_size=encode_batch_size, tiles=enhance_tiles, ratio=enhance_ratio, clipvision_size=clipvision_size)
+        if is_faceid and not is_plus:
+            img_cond_embeds = face_cond_embeds
+        else:
+            img_cond_embeds = encode_image_masked(clipvision, image, batch_size=encode_batch_size, tiles=enhance_tiles, ratio=enhance_ratio, clipvision_size=clipvision_size)
         if image_composition is not None:
             img_comp_cond_embeds = encode_image_masked(clipvision, image_composition, batch_size=encode_batch_size, tiles=enhance_tiles, ratio=enhance_ratio, clipvision_size=clipvision_size)
 
@@ -497,6 +511,7 @@ def ipadapter_execute(model,
 
     sigma_start = model.get_model_object("model_sampling").percent_to_sigma(start_at)
     sigma_end = model.get_model_object("model_sampling").percent_to_sigma(end_at)
+    set_model_sigma_wrapper(model)
 
     patch_kwargs = {
         "ipadapter": ipa,

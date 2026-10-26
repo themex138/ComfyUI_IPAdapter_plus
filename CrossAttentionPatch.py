@@ -4,6 +4,12 @@ import torch.nn.functional as F
 from comfy.ldm.modules.attention import optimized_attention
 from .utils import tensor_to_size
 
+def ipadapter_sigma_wrapper(executor, x, t, c_concat=None, c_crossattn=None, control=None, transformer_options=None, **kwargs):
+    transformer_options = transformer_options.copy() if transformer_options is not None else {}
+    # Every attention block receives a copy of these options, so read CUDA sigma once here.
+    transformer_options["ipadapter_sigma"] = transformer_options["sigmas"][0].item() if "sigmas" in transformer_options else 999999999.9
+    return executor(x, t, c_concat, c_crossattn, control, transformer_options, **kwargs)
+
 class Attn2Replace:
     def __init__(self, callback=None, **kwargs):
         self.callback = [callback]
@@ -23,7 +29,10 @@ class Attn2Replace:
     def __call__(self, q, k, v, extra_options):
         dtype = q.dtype
         out = optimized_attention(q, k, v, extra_options["n_heads"])
-        sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
+        if "ipadapter_sigma" in extra_options:
+            sigma = extra_options["ipadapter_sigma"]
+        else:
+            sigma = extra_options["sigmas"][0].item() if 'sigmas' in extra_options else 999999999.9
 
         device_kwargs = self.get_multigpu_kwargs(q.device)
 
@@ -226,7 +235,7 @@ def ipadapter_attention(out, q, k, v, extra_options, module_key='', ipadapter=No
             mask = tensor_to_size(mask, batch_prompt)
 
         mask = mask.repeat(len(cond_or_uncond), 1, 1)
-        mask = mask.view(mask.shape[0], -1, 1).repeat(1, 1, out.shape[2])
+        mask = mask.view(mask.shape[0], -1, 1)
 
         # covers cases where extreme aspect ratios can cause the mask to have a wrong size
         mask_len = mask_h * mask_w
