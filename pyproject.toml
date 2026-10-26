@@ -5,7 +5,7 @@ version = "2.0.0"
 license = "GPL-3.0 license"
 
 [project.urls]
-Repository = "https://github.com/cubiq/ComfyUI_IPAdapter_plus"
+Repository = "https://github.com/themex138/ComfyUI_IPAdapter_plus"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
