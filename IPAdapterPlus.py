@@ -565,6 +565,9 @@ def ipadapter_execute(model,
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 class IPAdapterUnifiedLoader:
+    DESCRIPTION = 'Loads a matching adapter and CLIP Vision bundle for the input model family and selected preset.'
+    OUTPUT_TOOLTIPS = ('Model passed through the loader.', 'Adapter, CLIP Vision, and any InsightFace models bundled for apply nodes.')
+
     def __init__(self):
         self.lora = None
         self.clipvision = { "file": None, "model": None }
@@ -574,11 +577,11 @@ class IPAdapterUnifiedLoader:
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "model": ("MODEL", ),
-            "preset": (['LIGHT - SD1.5 only (low strength)', 'STANDARD (medium strength)', 'VIT-G (medium strength)', 'PLUS (high strength)', 'PLUS FACE (portraits)', 'FULL FACE - SD1.5 only (portraits stronger)'], ),
+            "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+            "preset": (['LIGHT - SD1.5 only (low strength)', 'STANDARD (medium strength)', 'VIT-G (medium strength)', 'PLUS (high strength)', 'PLUS FACE (portraits)', 'FULL FACE - SD1.5 only (portraits stronger)'], {"tooltip": "Selects adapter strength and CLIP Vision variant. The loader matches SD1.5 or SDXL to the input model; presets marked SD1.5 only do not support SDXL."}),
         },
         "optional": {
-            "ipadapter": ("IPADAPTER", ),
+            "ipadapter": ("IPADAPTER", {"tooltip": "Optional bundle from another Unified Loader to reuse matching loaded models. Leave disconnected for an independent load."}),
         }}
 
     RETURN_TYPES = ("MODEL", "IPADAPTER", )
@@ -662,38 +665,47 @@ class IPAdapterUnifiedLoader:
         return (model, { 'clipvision': self.clipvision, 'ipadapter': self.ipadapter, 'insightface': self.insightface }, )
 
 class IPAdapterUnifiedLoaderFaceID(IPAdapterUnifiedLoader):
+    DESCRIPTION = 'Loads a FaceID adapter, matching CLIP Vision, and InsightFace. Applies the companion LoRA when the preset requires it and lora_strength is above zero.'
+    OUTPUT_TOOLTIPS = ('Model with the selected FaceID companion LoRA applied when required.', 'FaceID adapter, CLIP Vision, and InsightFace bundle.')
+
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "model": ("MODEL", ),
-            "preset": (['FACEID', 'FACEID PLUS - SD1.5 only', 'FACEID PLUS V2', 'FACEID PORTRAIT (style transfer)', 'FACEID PORTRAIT UNNORM - SDXL only (strong)'], ),
-            "lora_strength": ("FLOAT", { "default": 0.6, "min": 0, "max": 1, "step": 0.01 }),
-            "provider": (["CPU", "CUDA", "ROCM", "DirectML", "OpenVINO", "CoreML"], ),
+            "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+            "preset": (['FACEID', 'FACEID PLUS - SD1.5 only', 'FACEID PLUS V2', 'FACEID PORTRAIT (style transfer)', 'FACEID PORTRAIT UNNORM - SDXL only (strong)'], {"tooltip": "Select the FaceID variant for your checkpoint family. The adapter weights, companion LoRA, CLIP Vision, and InsightFace are distinct models loaded as needed."}),
+            "lora_strength": ("FLOAT", { "default": 0.6, "min": 0, "max": 1, "step": 0.01, "tooltip": "Strength of the companion FaceID LoRA on the diffusion model. Separate from the apply node adapter weight and weight_faceidv2. 0 skips applying the LoRA."}),
+            "provider": (["CPU", "CUDA", "ROCM", "DirectML", "OpenVINO", "CoreML"], {"tooltip": "Execution provider for InsightFace detection and identity encoding. The selected provider must be installed and supported."}),
         },
         "optional": {
-            "ipadapter": ("IPADAPTER", ),
+            "ipadapter": ("IPADAPTER", {"tooltip": "Optional Unified Loader bundle for reuse of matching loaded models. Leave disconnected to load the required FaceID models."}),
         }}
 
     RETURN_NAMES = ("MODEL", "ipadapter", )
     CATEGORY = "ipadapter/faceid"
 
 class IPAdapterUnifiedLoaderCommunity(IPAdapterUnifiedLoader):
+    DESCRIPTION = 'Loads the selected community adapter and its matching CLIP Vision encoder. Use a compatible checkpoint family.'
+    OUTPUT_TOOLTIPS = ('Model passed through the loader.', 'Community adapter and CLIP Vision bundle.')
+
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "model": ("MODEL", ),
-            "preset": (['Composition', 'Kolors'], ),
+            "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+            "preset": (['Composition', 'Kolors'], {"tooltip": "Select the community adapter. Composition must match the checkpoint family; Kolors requires a compatible Kolors model."}),
         },
         "optional": {
-            "ipadapter": ("IPADAPTER", ),
+            "ipadapter": ("IPADAPTER", {"tooltip": "Optional Unified Loader bundle for reuse of matching loaded models."}),
         }}
 
     CATEGORY = "ipadapter/loaders"
 
 class IPAdapterModelLoader:
+    DESCRIPTION = 'Loads standalone IPAdapter weights from models/ipadapter. Choose the same SD1.5 or SDXL family as the checkpoint and connect the matching CLIP Vision encoder separately.'
+    OUTPUT_TOOLTIPS = ('Standalone adapter weights for apply or encoder nodes.',)
+
     @classmethod
     def INPUT_TYPES(s):
-        return {"required": { "ipadapter_file": (folder_paths.get_filename_list("ipadapter"), )}}
+        return {"required": { "ipadapter_file": (folder_paths.get_filename_list("ipadapter"), {"tooltip": "Adapter weights from models/ipadapter, such as a .bin or .safetensors file. This is not the FaceID companion LoRA or the CLIP Vision encoder. Match SD1.5/SDXL and the adapter variant."})}}
 
     RETURN_TYPES = ("IPADAPTER",)
     FUNCTION = "load_ipadapter_model"
@@ -704,14 +716,17 @@ class IPAdapterModelLoader:
         return (ipadapter_model_loader(ipadapter_file),)
 
 class IPAdapterInsightFaceLoader:
+    DESCRIPTION = 'Loads face detection and identity encoding for FaceID adapters. This is separate from the adapter weights, companion LoRA, and CLIP Vision encoder.'
+    OUTPUT_TOOLTIPS = ('InsightFace detector and identity encoder for FaceID nodes.',)
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "provider": (["CPU", "CUDA", "ROCM"], ),
+                "provider": (["CPU", "CUDA", "ROCM"], {"tooltip": "Execution provider for InsightFace detection and identity encoding. The provider must be installed and supported."}),
             },
             "optional": {
-                "model_name": (['buffalo_l', 'antelopev2'], )
+                "model_name": (['buffalo_l', 'antelopev2'], {"tooltip": "InsightFace model pack. Leave at buffalo_l for the default; use the identity encoder expected by your FaceID adapter."})
             },
         }
 
@@ -728,20 +743,23 @@ class IPAdapterInsightFaceLoader:
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 class IPAdapterSimple:
+    DESCRIPTION = 'Applies a reference image using a Unified Loader bundle. Use a matching SD1.5 or SDXL adapter family.'
+    OUTPUT_TOOLTIPS = ('Model with image conditioning attached for sampling.',)
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image": ("IMAGE",),
-                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "weight_type": (['standard', 'prompt is more important', 'style transfer'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Bundle from IPAdapter Unified Loader containing adapter weights and CLIP Vision. Standalone Model Loader output is not sufficient for this node."}),
+                "image": ("IMAGE", {"tooltip": "Reference image to guide the generated image."}),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05, "tooltip": "Adapter influence during denoising. Higher values strengthen reference conditioning."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "weight_type": (['standard', 'prompt is more important', 'style transfer'], {"tooltip": "standard uses uniform layer weighting; prompt is more important gives later layers more adapter influence; style transfer selects style-oriented layers."}),
             },
             "optional": {
-                "attn_mask": ("MASK",),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
             }
         }
 
@@ -775,6 +793,9 @@ class IPAdapterSimple:
         return ipadapter_execute(model.clone(), ipadapter['ipadapter']['model'], ipadapter['clipvision']['model'], **ipa_args)
 
 class IPAdapterAdvanced:
+    DESCRIPTION = 'Applies reference images with layer weighting, embedding combination, and a denoising interval. Use a Unified Loader bundle or standalone adapter weights with matching CLIP Vision.'
+    OUTPUT_TOOLTIPS = ('Model with image conditioning attached for sampling.',)
+
     def __init__(self):
         self.unfold_batch = False
 
@@ -782,20 +803,20 @@ class IPAdapterAdvanced:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image": ("IMAGE",),
-                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
-                "weight_type": (WEIGHT_TYPES, ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+                "image": ("IMAGE", {"tooltip": "Reference image for conditioning. Multiple images can be merged with combine_embeds or processed by a Batch node."}),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Adapter influence during denoising. Higher values strengthen reference conditioning."}),
+                "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
             },
             "optional": {
-                "image_negative": ("IMAGE",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
+                "image_negative": ("IMAGE", {"tooltip": "Optional image conditioning for the unconditional branch. Omit to use the adapter default; this is separate from a text negative prompt."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
             }
         }
 
@@ -874,6 +895,9 @@ class IPAdapterAdvanced:
         return (work_model, face_image, )
 
 class IPAdapterBatch(IPAdapterAdvanced):
+    DESCRIPTION = 'Applies reference images across a batch or animation frames instead of merging them into one reference.'
+    OUTPUT_TOOLTIPS = ('Model with conditioning for the reference batch.',)
+
     def __init__(self):
         self.unfold_batch = True
 
@@ -881,50 +905,56 @@ class IPAdapterBatch(IPAdapterAdvanced):
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image": ("IMAGE",),
-                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
-                "weight_type": (WEIGHT_TYPES, ),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
-                "encode_batch_size": ("INT", { "default": 0, "min": 0, "max": 4096 }),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+                "image": ("IMAGE", {"tooltip": "Reference image for conditioning. Multiple images can be merged with combine_embeds or processed by a Batch node."}),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Adapter influence during denoising. Higher values strengthen reference conditioning."}),
+                "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
+                "encode_batch_size": ("INT", { "default": 0, "min": 0, "max": 4096, "tooltip": "Images per CLIP Vision encoding pass. 0 encodes the whole batch; smaller values reduce encoding memory use."}),
             },
             "optional": {
-                "image_negative": ("IMAGE",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
+                "image_negative": ("IMAGE", {"tooltip": "Optional image conditioning for the unconditional branch. Omit to use the adapter default; this is separate from a text negative prompt."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
             }
         }
 
 class IPAdapterStyleComposition(IPAdapterAdvanced):
+    DESCRIPTION = 'Combines separate style and composition references for SDXL. Each reference has its own influence weight.'
+    OUTPUT_TOOLTIPS = ('SDXL model with style and composition conditioning.',)
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image_style": ("IMAGE",),
-                "image_composition": ("IMAGE",),
-                "weight_style": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
-                "weight_composition": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
-                "expand_style": ("BOOLEAN", { "default": False }),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"default": "average"}),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+                "image_style": ("IMAGE", {"tooltip": "Reference for visual style. Style + Composition currently requires SDXL."}),
+                "weight_style": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Influence of the style reference in the model layers selected for style."}),
+                "weight_composition": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Influence of the composition reference in the model layers selected for layout."}),
+                "expand_style": ("BOOLEAN", { "default": False, "tooltip": "Extends style influence to additional model layers."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"default": "average", "tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
             },
             "optional": {
-                "image_negative": ("IMAGE",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
+                "image_composition": ("IMAGE", {"tooltip": "Optional layout and composition reference. Leave disconnected to use image_style for both style and composition."}),
+                "image_negative": ("IMAGE", {"tooltip": "Optional image conditioning for the unconditional branch. Omit to use the adapter default; this is separate from a text negative prompt."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
             }
         }
 
     CATEGORY = "ipadapter/style_composition"
 
 class IPAdapterStyleCompositionBatch(IPAdapterStyleComposition):
+    DESCRIPTION = 'Applies separate style and composition reference batches for SDXL batch or animation processing.'
+    OUTPUT_TOOLTIPS = ('SDXL model with style and composition batch conditioning.',)
+
     def __init__(self):
         self.unfold_batch = True
 
@@ -932,45 +962,48 @@ class IPAdapterStyleCompositionBatch(IPAdapterStyleComposition):
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image_style": ("IMAGE",),
-                "image_composition": ("IMAGE",),
-                "weight_style": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
-                "weight_composition": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
-                "expand_style": ("BOOLEAN", { "default": False }),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+                "image_style": ("IMAGE", {"tooltip": "Reference for visual style. Style + Composition currently requires SDXL."}),
+                "weight_style": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Influence of the style reference in the model layers selected for style."}),
+                "weight_composition": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Influence of the composition reference in the model layers selected for layout."}),
+                "expand_style": ("BOOLEAN", { "default": False, "tooltip": "Extends style influence to additional model layers."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
             },
             "optional": {
-                "image_negative": ("IMAGE",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
+                "image_composition": ("IMAGE", {"tooltip": "Optional layout and composition reference. Leave disconnected to use image_style for both style and composition."}),
+                "image_negative": ("IMAGE", {"tooltip": "Optional image conditioning for the unconditional branch. Omit to use the adapter default; this is separate from a text negative prompt."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
             }
         }
 
 class IPAdapterFaceID(IPAdapterAdvanced):
+    DESCRIPTION = 'Applies FaceID identity conditioning. Use a matching FaceID bundle; adapter weight, Plus V2 projection scale, and companion LoRA strength control different stages.'
+    OUTPUT_TOOLTIPS = ('Model with FaceID conditioning attached for sampling.', 'Aligned face crop used for FaceID encoding.')
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image": ("IMAGE",),
-                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
-                "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05 }),
-                "weight_type": (WEIGHT_TYPES, ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+                "image": ("IMAGE", {"tooltip": "Face reference for identity encoding. The node detects and aligns a face before applying conditioning."}),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05, "tooltip": "Overall FaceID influence during denoising. Separate from weight_faceidv2 and the loader companion LoRA strength."}),
+                "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05, "tooltip": "FaceID Plus/Plus V2 projection scale, separate from denoising weight and loader LoRA strength. For Plus V2 it scales the CLIP-based refinement added to the identity embedding; plain FaceID does not use it."}),
+                "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
             },
             "optional": {
-                "image_negative": ("IMAGE",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
-                "insightface": ("INSIGHTFACE",),
+                "image_negative": ("IMAGE", {"tooltip": "Optional image conditioning for the unconditional branch. Omit to use the adapter default; this is separate from a text negative prompt."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
+                "insightface": ("INSIGHTFACE", {"tooltip": "Face detector and identity encoder. Leave disconnected to use InsightFace from the FaceID Unified Loader bundle."}),
             }
         }
 
@@ -979,31 +1012,37 @@ class IPAdapterFaceID(IPAdapterAdvanced):
     RETURN_NAMES = ("MODEL", "face_image", )
 
 class IPAAdapterFaceIDBatch(IPAdapterFaceID):
+    DESCRIPTION = 'Applies FaceID conditioning across an image batch or animation frames using a matching FaceID bundle.'
+    OUTPUT_TOOLTIPS = ('Model with FaceID conditioning for the reference batch.', 'Aligned face crops used for FaceID encoding.')
+
     def __init__(self):
         self.unfold_batch = True
 
 class IPAdapterFaceIDKolors(IPAdapterAdvanced):
+    DESCRIPTION = 'Applies the Kolors FaceID adapter to a compatible Kolors model. Use matching adapter weights, CLIP Vision, and InsightFace.'
+    OUTPUT_TOOLTIPS = ('Kolors model with FaceID conditioning.', 'Aligned face crop used for FaceID encoding.')
+
     @classmethod
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "image": ("IMAGE",),
-                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
-                "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05 }),
-                "weight_kolors": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05 }),
-                "weight_type": (WEIGHT_TYPES, ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+                "image": ("IMAGE", {"tooltip": "Face reference for identity encoding with the Kolors FaceID adapter."}),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05, "tooltip": "Overall FaceID influence during denoising, separate from projection weights and the companion LoRA strength."}),
+                "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05, "tooltip": "FaceID Plus/Plus V2 projection scale, separate from denoising weight and loader LoRA strength. For Plus V2 it scales the CLIP-based refinement added to the identity embedding; plain FaceID does not use it."}),
+                "weight_kolors": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05, "tooltip": "Scales the Kolors encoder projection used by this FaceID adapter."}),
+                "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
             },
             "optional": {
-                "image_negative": ("IMAGE",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
-                "insightface": ("INSIGHTFACE",),
+                "image_negative": ("IMAGE", {"tooltip": "Optional image conditioning for the unconditional branch. Omit to use the adapter default; this is separate from a text negative prompt."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
+                "insightface": ("INSIGHTFACE", {"tooltip": "Face detector and identity encoder. Leave disconnected to use InsightFace from the FaceID Unified Loader bundle."}),
             }
         }
 
@@ -1174,6 +1213,9 @@ class IPAdapterTiledBatch(IPAdapterTiled):
         }
 
 class IPAdapterEmbeds:
+    DESCRIPTION = 'Applies saved or precomputed embeddings made with a compatible adapter and CLIP Vision encoder. Negative embeddings can replace default negative encoding.'
+    OUTPUT_TOOLTIPS = ('Model with embedding conditioning attached for sampling.',)
+
     def __init__(self):
         self.unfold_batch = False
 
@@ -1181,19 +1223,19 @@ class IPAdapterEmbeds:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": ("MODEL", ),
-                "ipadapter": ("IPADAPTER", ),
-                "pos_embed": ("EMBEDS",),
-                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
-                "weight_type": (WEIGHT_TYPES, ),
-                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
-                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
+                "model": ("MODEL", {"tooltip": "Diffusion model to condition. Match the adapter family to the checkpoint: SD1.5, SDXL, or the specific supported model."}),
+                "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a Unified Loader bundle matching the embeddings. CLIP Vision can be omitted when matching negative embeddings are supplied."}),
+                "pos_embed": ("EMBEDS", {"tooltip": "Positive embeddings from IPAdapter Encoder. Use the same adapter variant and matching CLIP Vision encoder."}),
+                "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05, "tooltip": "Adapter influence during denoising. Higher values strengthen reference conditioning."}),
+                "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
+                "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
+                "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
+                "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
             },
             "optional": {
-                "neg_embed": ("EMBEDS",),
-                "attn_mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
+                "neg_embed": ("EMBEDS", {"tooltip": "Optional matching negative embeddings. With standalone adapter weights, supplying these avoids needing CLIP Vision to create default negative embeddings."}),
+                "attn_mask": ("MASK", {"tooltip": "Spatial mask for adapter influence on the generated image. White applies conditioning; black blocks it."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching encoder used to create default negative embeddings when neg_embed is omitted. A Unified Loader bundle supplies it automatically."}),
             }
         }
 
@@ -1229,6 +1271,9 @@ class IPAdapterEmbeds:
         return ipadapter_execute(model.clone(), ipadapter_model, clip_vision, **ipa_args)
 
 class IPAdapterEmbedsBatch(IPAdapterEmbeds):
+    DESCRIPTION = 'Applies precomputed embeddings across a batch or animation frames instead of combining them into one reference.'
+    OUTPUT_TOOLTIPS = ('Model with embedding conditioning for the reference batch.',)
+
     def __init__(self):
         self.unfold_batch = True
 
@@ -1389,16 +1434,19 @@ class IPAdapterPreciseCompositionBatch(IPAdapterPreciseComposition):
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 class IPAdapterEncoder:
+    DESCRIPTION = 'Encodes reference images for reuse by IPAdapter Embeds. Keep the adapter variant and CLIP Vision encoder consistent between encoding and applying.'
+    OUTPUT_TOOLTIPS = ('Positive image embeddings for IPAdapter Embeds or Combine Embeds.', 'Matching negative embeddings for IPAdapter Embeds.')
+
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "ipadapter": ("IPADAPTER",),
-            "image": ("IMAGE",),
-            "weight": ("FLOAT", { "default": 1.0, "min": -1.0, "max": 3.0, "step": 0.01 }),
+            "ipadapter": ("IPADAPTER", {"tooltip": "Adapter weights or a bundle from Unified Loader. Standalone weights also need the matching CLIP Vision input."}),
+            "image": ("IMAGE", {"tooltip": "Reference images to encode into reusable positive and negative embedding streams."}),
+            "weight": ("FLOAT", { "default": 1.0, "min": -1.0, "max": 3.0, "step": 0.01, "tooltip": "Scales positive CLIP Vision embeddings before adapter projection. Separate from the apply node denoising weight."}),
             },
             "optional": {
-                "mask": ("MASK",),
-                "clip_vision": ("CLIP_VISION",),
+                "mask": ("MASK", {"tooltip": "Optional mask applied while encoding the reference image. This differs from an apply node attention mask on the generated image."}),
+                "clip_vision": ("CLIP_VISION", {"tooltip": "Matching CLIP Vision encoder. Leave disconnected to use the Unified Loader bundle; standalone adapter weights need this input."}),
             }
         }
 
@@ -1448,17 +1496,20 @@ class IPAdapterEncoder:
         return (img_cond_embeds, img_uncond_embeds, )
 
 class IPAdapterCombineEmbeds:
+    DESCRIPTION = 'Combines compatible embeddings. concat keeps entries separate; average blends them into one. add changes magnitude. subtract needs at least two entries and subtracts the mean of later entries from the first.'
+    OUTPUT_TOOLTIPS = ('Combined embeddings. Connect positive and negative embedding streams separately.',)
+
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "embed1": ("EMBEDS",),
-            "method": (["concat", "add", "subtract", "average", "norm average", "max", "min"], ),
+            "embed1": ("EMBEDS", {"tooltip": "First embedding stream. For subtract, this is the starting value; use at least two embedding entries."}),
+            "method": (["concat", "add", "subtract", "average", "norm average", "max", "min"], {"tooltip": "concat keeps all entries and can use more downstream memory; average blends to one entry. add sums and changes scale; norm average normalizes then averages; subtract removes the mean of later entries from the first."}),
         },
         "optional": {
-            "embed2": ("EMBEDS",),
-            "embed3": ("EMBEDS",),
-            "embed4": ("EMBEDS",),
-            "embed5": ("EMBEDS",),
+            "embed2": ("EMBEDS", {"tooltip": "Optional compatible embeddings. Leave disconnected to omit this input; keep positive and negative streams separate."}),
+            "embed3": ("EMBEDS", {"tooltip": "Optional compatible embeddings. Leave disconnected to omit this input; keep positive and negative streams separate."}),
+            "embed4": ("EMBEDS", {"tooltip": "Optional compatible embeddings. Leave disconnected to omit this input; keep positive and negative streams separate."}),
+            "embed5": ("EMBEDS", {"tooltip": "Optional compatible embeddings. Leave disconnected to omit this input; keep positive and negative streams separate."}),
         }}
 
     RETURN_TYPES = ("EMBEDS",)
@@ -1551,13 +1602,16 @@ class IPAdapterNoise:
         return (noise, )
 
 class PrepImageForClipVision:
+    DESCRIPTION = 'Crops or pads a reference to a square and resizes it to 224 x 224 before CLIP Vision encoding. Cropping can remove content outside the selected square.'
+    OUTPUT_TOOLTIPS = ('Prepared 224 x 224 reference image.',)
+
     @classmethod
     def INPUT_TYPES(s):
         return {"required": {
-            "image": ("IMAGE",),
-            "interpolation": (["LANCZOS", "BICUBIC", "HAMMING", "BILINEAR", "BOX", "NEAREST"],),
-            "crop_position": (["top", "bottom", "left", "right", "center", "pad"],),
-            "sharpening": ("FLOAT", {"default": 0.0, "min": 0, "max": 1, "step": 0.05}),
+            "image": ("IMAGE", {"tooltip": "Reference image to crop or pad before CLIP Vision encoding."}),
+            "interpolation": (["LANCZOS", "BICUBIC", "HAMMING", "BILINEAR", "BOX", "NEAREST"], {"tooltip": "Resampling filter for the final 224 x 224 image."}),
+            "crop_position": (["top", "bottom", "left", "right", "center", "pad"], {"tooltip": "Selects which square region to keep. pad adds black borders to retain more of a non-square reference."}),
+            "sharpening": ("FLOAT", {"default": 0.0, "min": 0, "max": 1, "step": 0.05, "tooltip": "Optional sharpening after resizing. 0 leaves sharpening disabled."}),
             },
         }
 
