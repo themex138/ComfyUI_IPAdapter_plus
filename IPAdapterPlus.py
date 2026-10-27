@@ -39,6 +39,9 @@ else:
     current_paths, _ = folder_paths.folder_names_and_paths["ipadapter"]
 folder_paths.folder_names_and_paths["ipadapter"] = (current_paths, folder_paths.supported_pt_extensions)
 
+def median_embedding(embeds):
+    return torch.quantile(embeds.float(), 0.5, dim=0, keepdim=True).to(embeds.dtype)
+
 WEIGHT_TYPES = ["linear", "ease in", "ease out", 'ease in-out', 'reverse in-out', 'weak input', 'weak output', 'weak middle', 'strong middle', 'style transfer', 'composition', 'strong style transfer', 'style and composition', 'style transfer precise', 'composition precise']
 
 """
@@ -459,6 +462,12 @@ def ipadapter_execute(model,
                 face_cond_embeds = torch.mean(face_cond_embeds, dim=0).unsqueeze(0)
             if img_comp_cond_embeds is not None:
                 img_comp_cond_embeds = torch.mean(img_comp_cond_embeds, dim=0).unsqueeze(0)
+        elif combine_embeds == "median":
+            img_cond_embeds = median_embedding(img_cond_embeds)
+            if face_cond_embeds is not None:
+                face_cond_embeds = median_embedding(face_cond_embeds)
+            if img_comp_cond_embeds is not None:
+                img_comp_cond_embeds = median_embedding(img_comp_cond_embeds)
         elif combine_embeds == "norm average":
             img_cond_embeds = torch.mean(img_cond_embeds / torch.norm(img_cond_embeds, dim=0, keepdim=True), dim=0).unsqueeze(0)
             if face_cond_embeds is not None:
@@ -808,7 +817,7 @@ class IPAdapterAdvanced:
                 "image": ("IMAGE", {"tooltip": "Reference image for conditioning. Multiple images can be merged with combine_embeds or processed by a Batch node."}),
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Adapter influence during denoising. Higher values strengthen reference conditioning."}),
                 "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one; median reduces the influence of outliers. Batch nodes process images separately and ignore this setting. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
@@ -936,7 +945,7 @@ class IPAdapterStyleComposition(IPAdapterAdvanced):
                 "weight_style": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Influence of the style reference in the model layers selected for style."}),
                 "weight_composition": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05, "tooltip": "Influence of the composition reference in the model layers selected for layout."}),
                 "expand_style": ("BOOLEAN", { "default": False, "tooltip": "Extends style influence to additional model layers."}),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"default": "average", "tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"], {"default": "average", "tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one; median reduces the influence of outliers. Batch nodes process images separately and ignore this setting. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
@@ -994,7 +1003,7 @@ class IPAdapterFaceID(IPAdapterAdvanced):
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05, "tooltip": "Overall FaceID influence during denoising. Separate from weight_faceidv2 and the loader companion LoRA strength."}),
                 "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05, "tooltip": "FaceID Plus/Plus V2 projection scale, separate from denoising weight and loader LoRA strength. For Plus V2 it scales the CLIP-based refinement added to the identity embedding; plain FaceID does not use it."}),
                 "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one; median reduces the influence of outliers. Batch nodes process images separately and ignore this setting. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
@@ -1033,7 +1042,7 @@ class IPAdapterFaceIDKolors(IPAdapterAdvanced):
                 "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05, "tooltip": "FaceID Plus/Plus V2 projection scale, separate from denoising weight and loader LoRA strength. For Plus V2 it scales the CLIP-based refinement added to the identity embedding; plain FaceID does not use it."}),
                 "weight_kolors": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05, "tooltip": "Scales the Kolors encoder projection used by this FaceID adapter."}),
                 "weight_type": (WEIGHT_TYPES, {"tooltip": "Controls how influence is distributed across model layers. start_at and end_at set the denoising interval."}),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"], {"tooltip": "concat keeps all reference embeddings and can use more memory; average blends them into one; median reduces the influence of outliers. Batch nodes process images separately and ignore this setting. add increases magnitude; subtract removes the average of later references; norm average normalizes before averaging."}),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "Start of adapter conditioning as a fraction of denoising progress. 0 starts at the first step."}),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001, "tooltip": "End of adapter conditioning as a fraction of denoising progress. 1 keeps it active through the final step."}),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], {"tooltip": "V only scales the adapter output. K+V modes also scale attention keys; C penalty adjusts strength for channel width."}),
@@ -1063,7 +1072,7 @@ class IPAdapterTiled:
                 "image": ("IMAGE",),
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 3, "step": 0.05 }),
                 "weight_type": (WEIGHT_TYPES, ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"],),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "sharpening": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05 }),
@@ -1288,7 +1297,7 @@ class IPAdapterMS(IPAdapterAdvanced):
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
                 "weight_faceidv2": ("FLOAT", { "default": 1.0, "min": -1, "max": 5.0, "step": 0.05 }),
                 "weight_type": (WEIGHT_TYPES, ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"],),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
@@ -1314,7 +1323,7 @@ class IPAdapterClipVisionEnhancer(IPAdapterAdvanced):
                 "image": ("IMAGE",),
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
                 "weight_type": (WEIGHT_TYPES, ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"],),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
@@ -1365,7 +1374,7 @@ class IPAdapterFromParams(IPAdapterAdvanced):
                 "model": ("MODEL", ),
                 "ipadapter": ("IPADAPTER", ),
                 "ipadapter_params": ("IPADAPTER_PARAMS", ),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"],),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
             },
             "optional": {
@@ -1386,7 +1395,7 @@ class IPAdapterPreciseStyleTransfer(IPAdapterAdvanced):
                 "image": ("IMAGE",),
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
                 "style_boost": ("FLOAT", { "default": 1.0, "min": -5, "max": 5, "step": 0.05 }),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"],),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
@@ -1412,7 +1421,7 @@ class IPAdapterPreciseComposition(IPAdapterAdvanced):
                 "image": ("IMAGE",),
                 "weight": ("FLOAT", { "default": 1.0, "min": -1, "max": 5, "step": 0.05 }),
                 "composition_boost": ("FLOAT", { "default": 0.0, "min": -5, "max": 5, "step": 0.05 }),
-                "combine_embeds": (["concat", "add", "subtract", "average", "norm average"],),
+                "combine_embeds": (["concat", "add", "subtract", "average", "norm average", "median"],),
                 "start_at": ("FLOAT", { "default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "end_at": ("FLOAT", { "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001 }),
                 "embeds_scaling": (['V only', 'K+V', 'K+V w/ C penalty', 'K+mean(V) w/ C penalty'], ),
@@ -1503,7 +1512,7 @@ class IPAdapterCombineEmbeds:
     def INPUT_TYPES(s):
         return {"required": {
             "embed1": ("EMBEDS", {"tooltip": "First embedding stream. For subtract, this is the starting value; use at least two embedding entries."}),
-            "method": (["concat", "add", "subtract", "average", "norm average", "max", "min"], {"tooltip": "concat keeps all entries and can use more downstream memory; average blends to one entry. add sums and changes scale; norm average normalizes then averages; subtract removes the mean of later entries from the first."}),
+            "method": (["concat", "add", "subtract", "average", "norm average", "median", "max", "min"], {"tooltip": "concat keeps all entries and can use more downstream memory; average blends to one entry; median takes the middle value per coordinate. add sums and changes scale; norm average normalizes then averages; subtract removes the mean of later entries from the first."}),
         },
         "optional": {
             "embed2": ("EMBEDS", {"tooltip": "Optional compatible embeddings. Leave disconnected to omit this input; keep positive and negative streams separate."}),
@@ -1531,6 +1540,8 @@ class IPAdapterCombineEmbeds:
             embeds = embeds.unsqueeze(0)
         elif method == "average":
             embeds = torch.mean(embeds, dim=0).unsqueeze(0)
+        elif method == "median":
+            embeds = median_embedding(embeds)
         elif method == "norm average":
             embeds = torch.mean(embeds / torch.norm(embeds, dim=0, keepdim=True), dim=0).unsqueeze(0)
         elif method == "max":
